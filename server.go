@@ -3,6 +3,7 @@ package tilnewtab
 import (
 	"encoding/json"
 	"errors"
+	"flickr"
 	"fmt"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine"
@@ -24,7 +25,7 @@ const minImgWidth int = 1000
 
 var titleSizeRegexp *regexp.Regexp = regexp.MustCompile(`\[(\d{4})\s*x\s*(\d{4})\]`)
 var imgurRegexp *regexp.Regexp = regexp.MustCompile(`imgur.com/([a-zA-Z0-9]{7})\.?[a-z]*`)
-var flickrRegexp *regexp.Regexp = regexp.MustCompile(`www\.flickr\.com`)
+var flickrRegexp *regexp.Regexp = regexp.MustCompile(`www\.flickr\.com.*([0-9]{11})`)
 
 type filter func(context.Context, []reddit.Post) []reddit.Post
 
@@ -136,7 +137,7 @@ func getRandomPost(c context.Context, key string, postFilter filter) (*reddit.Po
 	// if there are still no TILs, hit reddit directly
 	if len(posts) == 0 {
 		log.Infof(c, "Hitting reddit for %s", key)
-		posts, err = reddit.QueryRedditTop(c, key, 30, "week")
+		posts, err = reddit.QueryRedditTop(c, key, 40, "week")
 		if err != nil {
 			// if there is an error here, game over
 			return nil, err
@@ -178,10 +179,11 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 		// first check if it is imgur
 		match := imgurRegexp.FindStringSubmatch(post.URL)
 		if len(match) > 1 {
+			log.Infof(c, "Checking URL with imgur: %s", post.URL)
 			id := match[1]
 			info, err := imgur.GetImageInfo(c, id)
 			if err != nil {
-				log.Errorf(c, "Error while checking image info for url: %s", post.URL)
+				log.Errorf(c, "Error while checking imgur image info for url %s: %s", post.URL, err)
 				continue
 			}
 			if info.Width >= minImgWidth && info.Height >= minImgHeight {
@@ -189,25 +191,41 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 				post.URL = info.Link
 				filtered = append(filtered, post)
 			}
-		} else if flickrRegexp.MatchString(post.URL) {
-			// skip flickr for now because I would need to hit their api for img sizes/links
 		} else {
-			// then try to scrape the size from the title
-			match := titleSizeRegexp.FindStringSubmatch(post.Title)
-			if len(match) > 2 {
-				width, err := strconv.Atoi(match[1])
+			// check flickr
+			match = flickrRegexp.FindStringSubmatch(post.URL)
+			if len(match) > 1 {
+				log.Infof(c, "Checking URL with flickr: %s", post.URL)
+				id := match[1]
+				info, err := flickr.GetImageInfo(c, id)
 				if err != nil {
-					log.Errorf(c, "Error while parsing image size: %s, %s", match[1], err)
+					log.Errorf(c, "Error while checking flickr image info for url %s: %s", post.URL, err)
 					continue
 				}
-				height, err := strconv.Atoi(match[2])
-				if err != nil {
-					log.Errorf(c, "Error while parsing image size: %s, %s", match[2], err)
-					continue
-				}
-				if width >= minImgWidth && height >= minImgHeight {
-					log.Infof(c, "Keeping image based on title: %s", post.Title)
+				if info.Width >= minImgWidth && info.Height >= minImgHeight {
+					log.Infof(c, "Keeping image based on flickr")
+					post.URL = info.Link
 					filtered = append(filtered, post)
+				}
+			} else {
+				// then try to scrape the size from the title
+				match := titleSizeRegexp.FindStringSubmatch(post.Title)
+				if len(match) > 2 {
+					log.Infof(c, "Checking URL with title: %s", post.URL)
+					width, err := strconv.Atoi(match[1])
+					if err != nil {
+						log.Errorf(c, "Error while parsing image size: %s, %s", match[1], err)
+						continue
+					}
+					height, err := strconv.Atoi(match[2])
+					if err != nil {
+						log.Errorf(c, "Error while parsing image size: %s, %s", match[2], err)
+						continue
+					}
+					if width >= minImgWidth && height >= minImgHeight {
+						log.Infof(c, "Keeping image based on title: %s", post.Title)
+						filtered = append(filtered, post)
+					}
 				}
 			}
 		}
@@ -244,14 +262,11 @@ func deleteSavedPosts(c context.Context, key string) error {
 		KeysOnly()
 	keys, err := q.GetAll(c, nil)
 	if err != nil {
-		return nil
+		return err
 	}
 	if err = datastore.DeleteMulti(c, keys); err != nil {
 		return err
 	}
 	// flush cache
-	if err = memcache.Delete(c, key); err != nil {
-		return err
-	}
-	return nil
+	return memcache.Delete(c, key)
 }
