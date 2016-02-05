@@ -24,6 +24,7 @@ const minImgWidth int = 1000
 
 var titleSizeRegexp *regexp.Regexp = regexp.MustCompile(`\[(\d{4})\s*x\s*(\d{4})\]`)
 var imgurRegexp *regexp.Regexp = regexp.MustCompile(`imgur.com/([a-zA-Z0-9]{7})\.?[a-z]*`)
+var flickrRegexp *regexp.Regexp = regexp.MustCompile(`www\.flickr\.com`)
 
 type filter func(context.Context, []reddit.Post) []reddit.Post
 
@@ -188,6 +189,8 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 				post.URL = info.Link
 				filtered = append(filtered, post)
 			}
+		} else if flickrRegexp.MatchString(post.URL) {
+			// skip flickr for now because I would need to hit their api for img sizes/links
 		} else {
 			// then try to scrape the size from the title
 			match := titleSizeRegexp.FindStringSubmatch(post.Title)
