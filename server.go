@@ -126,7 +126,7 @@ func getRandomPost(c context.Context, key string, postFilter filter) (*reddit.Po
 	// if there are still no TILs, need to go to DB
 	if len(posts) == 0 {
 		log.Infof(c, "Checking DB for %s", key)
-		q := datastore.NewQuery(key)
+		q := datastore.NewQuery(key).Ancestor(getParentKey(c, key))
 		_, err = q.GetAll(c, &posts)
 		if err != nil {
 			// if the db call came back with an error, log the error but keep going
@@ -238,7 +238,7 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 func savePostsToDB(c context.Context, posts []reddit.Post, key string) error {
 	var keys []*datastore.Key
 	for _, element := range posts {
-		keys = append(keys, datastore.NewKey(c, key, element.Title, 0, nil))
+		keys = append(keys, datastore.NewKey(c, key, element.Title, 0, getParentKey(c, key)))
 	}
 	_, err := datastore.PutMulti(c, keys, posts)
 	return err
@@ -259,9 +259,7 @@ func savePostsToCache(c context.Context, posts []reddit.Post, key string) error 
 
 func deleteSavedPosts(c context.Context, key string) error {
 	// flush db
-	q := datastore.NewQuery(key).
-		// Filter("Retrieved <", time.Now().Add(-24*time.Hour)).
-		KeysOnly()
+	q := datastore.NewQuery(key).Ancestor(getParentKey(c, key)).KeysOnly()
 	keys, err := q.GetAll(c, nil)
 	if err != nil {
 		return err
@@ -271,4 +269,8 @@ func deleteSavedPosts(c context.Context, key string) error {
 	}
 	// flush cache
 	return memcache.Delete(c, key)
+}
+
+func getParentKey(c context.Context, key string) *datastore.Key {
+	return datastore.NewKey(c, key+"parent", key+"parent", 0, nil)
 }
