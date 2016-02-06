@@ -45,11 +45,13 @@ func updateSavedPostsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 	err := deleteSavedPosts(ctx, tilKey)
 	if err != nil && err != memcache.ErrCacheMiss {
+		log.Errorf(ctx, "Error deleting saved posts %s: %s", tilKey, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	err = deleteSavedPosts(ctx, epKey)
 	if err != nil && err != memcache.ErrCacheMiss {
+		log.Errorf(ctx, "Error deleting saved posts %s: %s", epKey, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
