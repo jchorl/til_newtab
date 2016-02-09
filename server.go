@@ -31,6 +31,7 @@ type filter func(context.Context, []reddit.Post) []reddit.Post
 
 func init() {
 	http.HandleFunc("/get_random_img", randomImageHandler)
+	http.HandleFunc("/get_all_img", allImageHandler)
 	http.HandleFunc("/get_random_til", randomTilHandler)
 	http.HandleFunc("/update_saved_posts", updateSavedPostsHandler)
 }
@@ -83,6 +84,20 @@ func randomImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func allImageHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+	imgs, err := getAllPosts(ctx, epKey, filterImgPosts)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = json.NewEncoder(w).Encode(&imgs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
 func randomTilHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 	til, err := getRandomPost(ctx, tilKey, nil)
@@ -104,6 +119,20 @@ func randomTilHandler(w http.ResponseWriter, r *http.Request) {
 */
 
 func getRandomPost(c context.Context, key string, postFilter filter) (*reddit.Post, error) {
+	posts, err := getAllPosts(c, key, postFilter)
+	if err != nil {
+		return nil, err
+	}
+	if len(posts) > 0 {
+		// pick a rand element from posts
+		return &posts[rand.Intn(len(posts))], nil
+	}
+
+	errorStr := fmt.Sprintf("Could not get any %s from anywhere :(", key)
+	return nil, errors.New(errorStr)
+}
+
+func getAllPosts(c context.Context, key string, postFilter filter) ([]reddit.Post, error) {
 	var err error
 	var posts []reddit.Post
 	needCacheSave := false
@@ -167,12 +196,8 @@ func getRandomPost(c context.Context, key string, postFilter filter) (*reddit.Po
 				log.Errorf(c, "Failed to save %s posts to db with error: %s", key, err)
 			}
 		}
-
-		// pick a rand element from posts
-		return &posts[rand.Intn(len(posts))], nil
 	}
-	errorStr := fmt.Sprintf("Could not get any %s from anywhere :(", key)
-	return nil, errors.New(errorStr)
+	return posts, nil
 }
 
 func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {

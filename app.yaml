@@ -8,6 +8,8 @@ handlers:
   script: _go_app
 - url: /get_random_img
   script: _go_app
+- url: /get_all_img
+  script: _go_app
 - url: /update_saved_posts
   login: admin
   script: _go_app
