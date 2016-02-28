@@ -26,6 +26,7 @@ const minImgWidth int = 1000
 var titleSizeRegexp *regexp.Regexp = regexp.MustCompile(`\[(\d{4})\s*x\s*(\d{4})\]`)
 var imgurRegexp *regexp.Regexp = regexp.MustCompile(`imgur.com/([a-zA-Z0-9]{7})\.?[a-z]*`)
 var flickrRegexp *regexp.Regexp = regexp.MustCompile(`www\.flickr\.com.*([0-9]{11})`)
+var instaRegexp *regexp.Regexp = regexp.MustCompile(`instagram\.com`)
 
 type filter func(context.Context, []reddit.Post) []reddit.Post
 
@@ -200,6 +201,11 @@ func getAllPosts(c context.Context, key string, postFilter filter) ([]reddit.Pos
 	return posts, nil
 }
 
+func checkImgDimensions(width int, height int) bool {
+	ratio := float64(width) / float64(height)
+	return width >= minImgWidth && height >= minImgHeight && ratio >= 1 && ratio <= 2
+}
+
 func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 	var filtered []reddit.Post
 	for _, post := range posts {
@@ -213,7 +219,7 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 				log.Errorf(c, "Error while checking imgur image info for url %s: %s", post.URL, err)
 				continue
 			}
-			if info.Width >= minImgWidth && info.Height >= minImgHeight {
+			if checkImgDimensions(info.Width, info.Height) {
 				log.Infof(c, "Keeping image based on imgur")
 				post.URL = info.Link
 				filtered = append(filtered, post)
@@ -229,12 +235,12 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 					log.Errorf(c, "Error while checking flickr image info for url %s: %s", post.URL, err)
 					continue
 				}
-				if info.Width >= minImgWidth && info.Height >= minImgHeight {
+				if checkImgDimensions(info.Width, info.Height) {
 					log.Infof(c, "Keeping image based on flickr")
 					post.URL = info.Link
 					filtered = append(filtered, post)
 				}
-			} else {
+			} else if !instaRegexp.MatchString(post.URL) {
 				// then try to scrape the size from the title
 				match := titleSizeRegexp.FindStringSubmatch(post.Title)
 				if len(match) > 2 {
@@ -249,7 +255,7 @@ func filterImgPosts(c context.Context, posts []reddit.Post) []reddit.Post {
 						log.Errorf(c, "Error while parsing image size: %s, %s", match[2], err)
 						continue
 					}
-					if width >= minImgWidth && height >= minImgHeight {
+					if checkImgDimensions(width, height) {
 						log.Infof(c, "Keeping image based on title: %s", post.Title)
 						filtered = append(filtered, post)
 					}
